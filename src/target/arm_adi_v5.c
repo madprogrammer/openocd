@@ -97,7 +97,7 @@ static int mem_ap_setup_csw(struct adiv5_ap *ap, uint32_t csw)
 
 	if (csw != ap->csw_value) {
 		/* LOG_DEBUG("DAP: Set CSW %x",csw); */
-		int retval = dap_queue_ap_write(ap, MEM_AP_REG_CSW(ap->dap), csw);
+		int retval = ap->ops.ap_write(ap->ops.ap, ap->ops.offset | MEM_AP_REG_CSW(ap->dap), csw);
 		if (retval != ERROR_OK) {
 			ap->csw_value = 0;
 			return retval;
@@ -111,11 +111,11 @@ static int mem_ap_setup_tar(struct adiv5_ap *ap, target_addr_t tar)
 {
 	if (!ap->tar_valid || tar != ap->tar_value) {
 		/* LOG_DEBUG("DAP: Set TAR %x",tar); */
-		int retval = dap_queue_ap_write(ap, MEM_AP_REG_TAR(ap->dap), (uint32_t)(tar & 0xffffffffUL));
+		int retval = ap->ops.ap_write(ap->ops.ap, ap->ops.offset | MEM_AP_REG_TAR(ap->dap), (uint32_t)(tar & 0xffffffffUL));
 		if (retval == ERROR_OK && is_64bit_ap(ap)) {
 			/* See if bits 63:32 of tar is different from last setting */
 			if (!ap->tar_valid || (ap->tar_value >> 32) != (tar >> 32))
-				retval = dap_queue_ap_write(ap, MEM_AP_REG_TAR64(ap->dap), (uint32_t)(tar >> 32));
+				retval = ap->ops.ap_write(ap->ops.ap, ap->ops.offset | MEM_AP_REG_TAR64(ap->dap), (uint32_t)(tar >> 32));
 		}
 		if (retval != ERROR_OK) {
 			ap->tar_valid = false;
@@ -132,9 +132,9 @@ static int mem_ap_read_tar(struct adiv5_ap *ap, target_addr_t *tar)
 	uint32_t lower;
 	uint32_t upper = 0;
 
-	int retval = dap_queue_ap_read(ap, MEM_AP_REG_TAR(ap->dap), &lower);
+	int retval = ap->ops.ap_read(ap->ops.ap, ap->ops.offset | MEM_AP_REG_TAR(ap->dap), &lower);
 	if (retval == ERROR_OK && is_64bit_ap(ap))
-		retval = dap_queue_ap_read(ap, MEM_AP_REG_TAR64(ap->dap), &upper);
+		retval = ap->ops.ap_read(ap->ops.ap, ap->ops.offset | MEM_AP_REG_TAR64(ap->dap), &upper);
 
 	if (retval != ERROR_OK) {
 		ap->tar_valid = false;
@@ -248,7 +248,7 @@ int mem_ap_read_u32(struct adiv5_ap *ap, target_addr_t address,
 	if (retval != ERROR_OK)
 		return retval;
 
-	return dap_queue_ap_read(ap, MEM_AP_REG_BD0(ap->dap) | (address & 0xC), value);
+	return ap->ops.ap_read(ap->ops.ap, ap->ops.offset | MEM_AP_REG_BD0(ap->dap) | (address & 0xC), value);
 }
 
 /**
@@ -300,7 +300,7 @@ int mem_ap_write_u32(struct adiv5_ap *ap, target_addr_t address,
 	if (retval != ERROR_OK)
 		return retval;
 
-	return dap_queue_ap_write(ap, MEM_AP_REG_BD0(ap->dap) | (address & 0xC),
+	return ap->ops.ap_write(ap->ops.ap, ap->ops.offset | MEM_AP_REG_BD0(ap->dap) | (address & 0xC),
 			value);
 }
 
@@ -750,6 +750,20 @@ int mem_ap_write_buf_noincr(struct adiv5_ap *ap,
 
 /*--------------------------------------------------------------------------*/
 
+static int dap_queue_ap_read_u32(struct adiv5_ap *ap,
+		target_addr_t reg, uint32_t *data)
+{
+	return dap_queue_ap_read(ap, (unsigned) reg, data);
+}
+
+
+static int dap_queue_ap_write_u32(struct adiv5_ap *ap,
+		target_addr_t reg, uint32_t data)
+{
+	return dap_queue_ap_write(ap, (unsigned) reg, data);
+}
+
+
 /**
  * Invalidate cached DP select and cached TAR and CSW of all APs
  */
@@ -890,13 +904,44 @@ int mem_ap_init(struct adiv5_ap *ap)
 	/* check that we support packed transfers */
 	uint32_t cfg;
 	int retval;
+	uint64_t offset;
+	struct adiv5_ap *parent_ap;
 	struct adiv5_dap *dap = ap->dap;
+
+	if (ap->parent == DP_APSEL_INVALID) {
+		ap->ops.ap = ap;
+		ap->ops.offset = 0;
+		ap->ops.ap_read = dap_queue_ap_read_u32;
+		ap->ops.ap_write = dap_queue_ap_write_u32;
+	} else {
+		ap->ops.ap = dap_get_ap(dap, ap->parent);
+		if (!ap->ops.ap) {
+			LOG_DEBUG("MEM_AP: failed to get parent AP");
+			return ERROR_FAIL;
+		}
+
+		ap->ops.offset = ap->ap_num;
+		ap->ops.ap_read = mem_ap_read_u32;
+		ap->ops.ap_write = mem_ap_write_u32;
+	}
+
+	parent_ap = ap->ops.ap;
+	offset = ap->ops.offset;
 
 	/* Set ap->cfg_reg before calling mem_ap_setup_transfer(). */
 	/* mem_ap_setup_transfer() needs to know if the MEM_AP supports LPAE. */
-	retval = dap_queue_ap_read(ap, MEM_AP_REG_CFG(dap), &cfg);
+	retval = ap->ops.ap_read(parent_ap, offset | MEM_AP_REG_CFG(dap), &cfg);
 	if (retval != ERROR_OK)
 		return retval;
+
+	retval = dap_run(dap);
+	if (retval != ERROR_OK)
+		return retval;
+
+	retval = ap->ops.ap_read(parent_ap, offset | AP_REG_IDR(dap), &apid);
+	if (retval != ERROR_OK) {
+		return retval;
+	}
 
 	retval = dap_run(dap);
 	if (retval != ERROR_OK)
@@ -1331,7 +1376,8 @@ static int dap_queue_read_reg(enum coresight_access_mode mode, struct adiv5_ap *
 		return dap_queue_ap_read(ap, reg, value);
 
 	/* mode == CS_ACCESS_MEM_AP */
-	return mem_ap_read_u32(ap, component_base + reg, value);
+	//return mem_ap_read_u32(ap, component_base + reg, value);
+	return dap_ap_read_atomic(ap, component_base + reg, value);
 }
 
 /**
@@ -2319,6 +2365,7 @@ int dap_lookup_cs_component(struct adiv5_ap *ap, uint8_t type,
 
 enum adiv5_cfg_param {
 	CFG_DAP,
+	CFG_PARENT_AP,
 	CFG_AP_NUM,
 	CFG_BASEADDR,
 	CFG_CTIBASE, /* DEPRECATED */
@@ -2326,6 +2373,7 @@ enum adiv5_cfg_param {
 
 static const struct jim_nvp nvp_config_opts[] = {
 	{ .name = "-dap",       .value = CFG_DAP },
+	{ .name = "-parent-ap", .value = CFG_PARENT_AP },
 	{ .name = "-ap-num",    .value = CFG_AP_NUM },
 	{ .name = "-baseaddr",  .value = CFG_BASEADDR },
 	{ .name = "-ctibase",   .value = CFG_CTIBASE }, /* DEPRECATED */
@@ -2333,7 +2381,7 @@ static const struct jim_nvp nvp_config_opts[] = {
 };
 
 static int adiv5_jim_spot_configure(struct jim_getopt_info *goi,
-		struct adiv5_dap **dap_p, uint64_t *ap_num_p, uint32_t *base_p)
+		struct adiv5_dap **dap_p, uint64_t *ap_num_p, uint64_t *parent_p, uint32_t *base_p)
 {
 	assert(dap_p && ap_num_p);
 
@@ -2383,6 +2431,30 @@ static int adiv5_jim_spot_configure(struct jim_getopt_info *goi,
 				return JIM_ERR;
 			}
 			Jim_SetResultString(goi->interp, adiv5_dap_name(*dap_p), -1);
+		}
+		break;
+
+	case CFG_PARENT_AP:
+		if (goi->isconfigure) {
+			/* jim_wide is a signed 64 bits int, ap_num is unsigned with max 52 bits */
+			jim_wide parent;
+			e = jim_getopt_wide(goi, &parent);
+			if (e != JIM_OK)
+				return e;
+			/* we still don't know dap->adi_version */
+			if (parent < 0 || (parent > DP_APSEL_MAX && (parent & 0xfff))) {
+				Jim_SetResultString(goi->interp, "Invalid parent AP number!", -1);
+				return JIM_ERR;
+			}
+			*parent_p = parent;
+		} else {
+			if (goi->argc)
+				goto err_no_param;
+			if (*parent_p == DP_APSEL_INVALID) {
+				Jim_SetResultString(goi->interp, "Parent AP number not configured", -1);
+				return JIM_ERR;
+			}
+			Jim_SetResult(goi->interp, Jim_NewIntObj(goi->interp, *parent_p));
 		}
 		break;
 
@@ -2456,7 +2528,7 @@ int adiv5_jim_configure_ext(struct target *target, struct jim_getopt_info *goi,
 	if (optional == ADI_CONFIGURE_DAP_COMPULSORY)
 		target->has_dap = true;
 
-	e = adiv5_jim_spot_configure(goi, &pc->dap, &pc->ap_num, NULL);
+	e = adiv5_jim_spot_configure(goi, &pc->dap, &pc->ap_num, &pc->parent, NULL);
 	if (e != JIM_OK)
 		return e;
 
@@ -2494,7 +2566,7 @@ int adiv5_verify_config(struct adiv5_private_config *pc)
 int adiv5_jim_mem_ap_spot_configure(struct adiv5_mem_ap_spot *cfg,
 		struct jim_getopt_info *goi)
 {
-	return adiv5_jim_spot_configure(goi, &cfg->dap, &cfg->ap_num, &cfg->base);
+	return adiv5_jim_spot_configure(goi, &cfg->dap, &cfg->ap_num, &cfg->parent, &cfg->base);
 }
 
 int adiv5_mem_ap_spot_init(struct adiv5_mem_ap_spot *p)
