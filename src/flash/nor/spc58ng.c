@@ -2049,7 +2049,7 @@ static int get_spc58ng_info(struct flash_bank *bank, struct command_invocation *
 }
 
 
-struct flash_driver spc58ng_flash = {
+const struct flash_driver spc58ng_flash = {
 	.name = "spc58ng",
 	.flash_bank_command = spc58ng_flash_bank_command,
 	.erase = spc58ng_erase,

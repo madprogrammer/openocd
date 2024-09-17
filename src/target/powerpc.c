@@ -2661,7 +2661,7 @@ static int powerpc_add_watchpoint(struct target *target, struct watchpoint *watc
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
-	LOG_DEBUG("Watchpoint (ID %d), addr = 0x%08" PRIx64 ", len = %d, mask = 0x%08x, value = 0x%08x, RW: %d",
+	LOG_DEBUG("Watchpoint (ID %d), addr = 0x%08" PRIx64 ", len = %d, mask = 0x%08" PRIx64 ", value = 0x%08" PRIx64 ", RW: %d",
 		watchpoint->unique_id,
 		watchpoint->address,
 		watchpoint->length,
@@ -3072,12 +3072,12 @@ static int powerpc_get_core_reg(struct reg *reg)
 {
 	struct powerpc_core_reg *powerpc_reg = reg->arch_info;
 	struct target *target = powerpc_reg->target;
-	struct powerpc_common *powerpc_target = target_to_powerpc(target);
+	struct powerpc_common *ppc_target = target_to_powerpc(target);
 
 	if (target->state != TARGET_HALTED)
 		return ERROR_TARGET_NOT_HALTED;
 
-	return powerpc_target->read_core_reg(target, powerpc_reg->num);
+	return ppc_target->read_core_reg(target, powerpc_reg->num);
 }
 
 static int powerpc_set_core_reg(struct reg *reg, uint8_t *buf)
@@ -3174,7 +3174,7 @@ int powerpc_start_algorithm(struct target *target,
 int powerpc_wait_algorithm(struct target *target,
 	int num_mem_params, struct mem_param *mem_params,
 	int num_reg_params, struct reg_param *reg_params,
-	target_addr_t exit_point, int timeout_ms,
+	target_addr_t exit_point, unsigned int timeout_ms,
 	void *arch_info)
 {
 	struct powerpc_common *powerpc = target_to_powerpc(target);
@@ -3300,7 +3300,7 @@ int powerpc_wait_algorithm(struct target *target,
 int powerpc_run_algorithm(struct target *target, int num_mem_params,
 		                  struct mem_param *mem_params, int num_reg_params,
 						  struct reg_param *reg_params, target_addr_t entry_point, target_addr_t exit_point,
-						  int timeout_ms, void *arch_info)
+						  unsigned int timeout_ms, void *arch_info)
 {
 	int err;
 
@@ -3451,7 +3451,7 @@ static int powerpc_examine(struct target *target)
 {
 	uint32_t idcode;
 
-	if (target->tap->hasidcode == false) {
+	if (target->tap->has_idcode == false) {
 		LOG_ERROR("no IDCODE present on device");
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	}

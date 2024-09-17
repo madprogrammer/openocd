@@ -1485,7 +1485,7 @@ static int get_sr5_info(struct flash_bank *bank, struct command_invocation *cmd)
 }
 
 
-struct flash_driver sr5_flash = {
+const struct flash_driver sr5_flash = {
 	.name = "sr5",
 	.flash_bank_command = sr5_flash_bank_command,
 	.erase = sr5_erase,

@@ -750,20 +750,6 @@ int mem_ap_write_buf_noincr(struct adiv5_ap *ap,
 
 /*--------------------------------------------------------------------------*/
 
-static int dap_queue_ap_read_u32(struct adiv5_ap *ap,
-		target_addr_t reg, uint32_t *data)
-{
-	return dap_queue_ap_read(ap, (unsigned) reg, data);
-}
-
-
-static int dap_queue_ap_write_u32(struct adiv5_ap *ap,
-		target_addr_t reg, uint32_t data)
-{
-	return dap_queue_ap_write(ap, (unsigned) reg, data);
-}
-
-
 /**
  * Invalidate cached DP select and cached TAR and CSW of all APs
  */
@@ -904,44 +890,13 @@ int mem_ap_init(struct adiv5_ap *ap)
 	/* check that we support packed transfers */
 	uint32_t cfg;
 	int retval;
-	uint64_t offset;
-	struct adiv5_ap *parent_ap;
 	struct adiv5_dap *dap = ap->dap;
-
-	if (ap->parent == DP_APSEL_INVALID) {
-		ap->ops.ap = ap;
-		ap->ops.offset = 0;
-		ap->ops.ap_read = dap_queue_ap_read_u32;
-		ap->ops.ap_write = dap_queue_ap_write_u32;
-	} else {
-		ap->ops.ap = dap_get_ap(dap, ap->parent);
-		if (!ap->ops.ap) {
-			LOG_DEBUG("MEM_AP: failed to get parent AP");
-			return ERROR_FAIL;
-		}
-
-		ap->ops.offset = ap->ap_num;
-		ap->ops.ap_read = mem_ap_read_u32;
-		ap->ops.ap_write = mem_ap_write_u32;
-	}
-
-	parent_ap = ap->ops.ap;
-	offset = ap->ops.offset;
 
 	/* Set ap->cfg_reg before calling mem_ap_setup_transfer(). */
 	/* mem_ap_setup_transfer() needs to know if the MEM_AP supports LPAE. */
-	retval = ap->ops.ap_read(parent_ap, offset | MEM_AP_REG_CFG(dap), &cfg);
+	retval = dap_queue_ap_read(ap, MEM_AP_REG_CFG(dap), &cfg);
 	if (retval != ERROR_OK)
 		return retval;
-
-	retval = dap_run(dap);
-	if (retval != ERROR_OK)
-		return retval;
-
-	retval = ap->ops.ap_read(parent_ap, offset | AP_REG_IDR(dap), &apid);
-	if (retval != ERROR_OK) {
-		return retval;
-	}
 
 	retval = dap_run(dap);
 	if (retval != ERROR_OK)
@@ -981,6 +936,7 @@ int mem_ap_init(struct adiv5_ap *ap)
 
 	return ERROR_OK;
 }
+
 
 /**
  * Put the debug link into SWD mode, if the target supports it.

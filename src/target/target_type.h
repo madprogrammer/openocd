@@ -349,5 +349,6 @@ extern struct target_type stm8_target;
 extern struct target_type testee_target;
 extern struct target_type xscale_target;
 extern struct target_type xtensa_chip_target;
+extern struct target_type powerpc_target;
 
 #endif /* OPENOCD_TARGET_TARGET_TYPE_H */
