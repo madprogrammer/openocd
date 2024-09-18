@@ -533,7 +533,8 @@ static int powerpc_once_ir_exec(struct jtag_tap *tap, int flush, uint32_t instr,
 static int powerpc_once_gain_access(struct jtag_tap *tap)
 {
 	/* Load opcode into the JTAGC Instruction Register */
-	return powerpc_jtag_send_ir(tap, JTAG_INSTR_ACCESS_AUX_CORE_2);
+    /* FIXME:SA */
+	return powerpc_jtag_send_ir(tap, 0x11);
 }
 
 /*
