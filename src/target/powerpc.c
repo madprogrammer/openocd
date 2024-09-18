@@ -88,6 +88,7 @@ static const struct {
 	{ 37, "xer", REG_TYPE_INT32,    NULL, "org.gnu.gdb.power.core", 0 },
 };
 
+#define SPC560
 
 static int powerpc_save_context(struct target *target);
 static int powerpc_restore_context(struct target *target);
@@ -215,6 +216,7 @@ static int powerpc_once_target_status(struct jtag_tap *tap);
 #define JTAG_INSTR_SAMPLE               0x03
 #define JTAG_INSTR_EXTEST               0x04
 
+#ifndef SPC560
 /* SPC584B - Chorus2M */
 #define JTAG_INSTR_ENABLE_JTAG_PASSWORD 0x07
 #define JTAG_INSTR_HIGHZ                0x09
@@ -229,13 +231,14 @@ static int powerpc_once_target_status(struct jtag_tap *tap);
 #define JTAG_INSTR_ACCESS_AUX_BUS_MON_1 0x35
 #define JTAG_INSTR_ACCESS_AUX_BUS_MON_2 0x36
 #define JTAG_INSTR_BYPASS               0x3F
-
-/* Bolero ?
+#else
+/* SPC560 */
 #define JTAG_INSTR_ACCESS_AUX_TAP_TCU   0x10
 #define JTAG_INSTR_ACCESS_AUX_TAP_ONCE  0x11
 #define JTAG_INSTR_ACCESS_AUX_TAP_NPC   0x12
 #define JTAG_INSTR_BYPASS               0x1F
-*/
+#endif
+
 
 #define POWERPC_NUM_GP_REGS 32
 
@@ -533,8 +536,11 @@ static int powerpc_once_ir_exec(struct jtag_tap *tap, int flush, uint32_t instr,
 static int powerpc_once_gain_access(struct jtag_tap *tap)
 {
 	/* Load opcode into the JTAGC Instruction Register */
-    /* FIXME:SA */
-	return powerpc_jtag_send_ir(tap, 0x11);
+#ifndef SPC560
+	return powerpc_jtag_send_ir(tap, JTAG_INSTR_ACCESS_AUX_CORE_2);
+#else
+	return powerpc_jtag_send_ir(tap, JTAG_INSTR_ACCESS_AUX_TAP_ONCE);
+#endif
 }
 
 /*
